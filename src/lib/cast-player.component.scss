@@ -1,0 +1,286 @@
+.cast-player-host {
+  --cast-player-base: 18px;
+  --cast-player-primary: #fff;
+  --cast-player-accent: var(--ion-color-primary, #21a0aa);
+  --cast-player-center-btn: 56px;
+  --cast-player-center-icon: 32px;
+
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  overflow: hidden;
+  cursor: pointer;
+  font-family: Roboto, Helvetica Neue, Segoe UI, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  touch-action: manipulation;
+
+  &.is-fullscreen {
+    --cast-player-base: 24px;
+    aspect-ratio: auto;
+    height: 100%;
+  }
+}
+
+.cast-player__video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.cast-player__poster {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.cast-player__gradient {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: calc(8 * var(--cast-player-base));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.7;
+    background: linear-gradient(
+      to bottom,
+      hsl(0 0% 0% / 0) 0%,
+      hsl(0 0% 0% / 0.013) 8.1%,
+      hsl(0 0% 0% / 0.049) 15.5%,
+      hsl(0 0% 0% / 0.104) 22.5%,
+      hsl(0 0% 0% / 0.175) 29%,
+      hsl(0 0% 0% / 0.259) 35.3%,
+      hsl(0 0% 0% / 0.352) 41.2%,
+      hsl(0 0% 0% / 0.45) 47.1%,
+      hsl(0 0% 0% / 0.55) 52.9%,
+      hsl(0 0% 0% / 0.648) 58.8%,
+      hsl(0 0% 0% / 0.741) 64.7%,
+      hsl(0 0% 0% / 0.825) 71%,
+      hsl(0 0% 0% / 0.896) 77.5%,
+      hsl(0 0% 0% / 0.951) 84.5%,
+      hsl(0 0% 0% / 0.987) 91.9%,
+      hsl(0 0% 0%) 100%
+    );
+  }
+}
+
+.cast-player-host.controls-visible .cast-player__gradient,
+.cast-player-host:not(.is-playing) .cast-player__gradient {
+  opacity: 1;
+}
+
+.cast-player__pause-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.cast-player__pause-badge {
+  width: var(--cast-player-center-btn);
+  height: var(--cast-player-center-btn);
+  border-radius: 30%;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  svg {
+    width: var(--cast-player-center-icon);
+    height: var(--cast-player-center-icon);
+    fill: #fff;
+  }
+}
+
+.cast-player__play-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--cast-player-center-btn);
+  height: var(--cast-player-center-btn);
+  border: none;
+  border-radius: 30%;
+  background: var(--cast-player-accent);
+  z-index: 4;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+
+  svg {
+    width: var(--cast-player-center-icon);
+    height: var(--cast-player-center-icon);
+    fill: #fff;
+    margin-left: 2px;
+  }
+}
+
+.cast-player__cast {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  border-radius: 50%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: white;
+
+  &.casting {
+    color: var(--cast-player-accent);
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.cast-player__control-bar {
+  position: absolute;
+  height: calc(2 * var(--cast-player-base));
+  bottom: var(--cast-player-base);
+  left: var(--cast-player-base);
+  right: var(--cast-player-base);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  z-index: 4;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.cast-player-host.controls-visible .cast-player__control-bar,
+.cast-player-host:not(.is-playing) .cast-player__control-bar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.cast-player__btn {
+  flex: 0 0 calc(2 * var(--cast-player-base));
+  width: calc(2 * var(--cast-player-base));
+  height: calc(2 * var(--cast-player-base));
+  padding: 0;
+  border: none;
+  border-radius: 25%;
+  background: transparent;
+  color: var(--cast-player-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+
+  svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: var(--cast-player-primary);
+    stroke-width: 1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  path:not([fill="none"]),
+  rect {
+    fill: var(--cast-player-primary);
+    stroke: none;
+  }
+
+  path[fill="none"] {
+    fill: none;
+    stroke: var(--cast-player-primary);
+  }
+}
+
+.cast-player__time-range {
+  flex: 1 1 auto;
+  height: calc(2 * var(--cast-player-base));
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.cast-player__track {
+  position: relative;
+  width: 100%;
+  height: calc(0.125 * var(--cast-player-base));
+  border-radius: calc(0.25 * var(--cast-player-base));
+  background: rgba(255, 255, 255, 0.2);
+  overflow: visible;
+}
+
+.cast-player__buffered,
+.cast-player__progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.cast-player__buffered {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.cast-player__progress {
+  background: var(--cast-player-accent);
+  z-index: 1;
+}
+
+.cast-player__thumb {
+  position: absolute;
+  top: 50%;
+  width: var(--cast-player-base);
+  height: var(--cast-player-base);
+  margin-left: calc(-0.5 * var(--cast-player-base));
+  border-radius: 50%;
+  background: var(--cast-player-accent);
+  transform: translateY(-50%);
+  opacity: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.cast-player__time-range:hover .cast-player__thumb,
+.cast-player__time-range:active .cast-player__thumb {
+  opacity: 1;
+}
+
+@media (min-width: 480px) {
+  .cast-player-host {
+    --cast-player-base: 20px;
+  }
+}

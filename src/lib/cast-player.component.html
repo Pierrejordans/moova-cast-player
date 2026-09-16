@@ -1,0 +1,118 @@
+<div
+  #hostEl
+  class="cast-player-host"
+  [class.controls-visible]="controlsVisible"
+  [class.is-playing]="isPlaying"
+  [class.is-fullscreen]="fullscreen"
+  [class.is-casting]="isCasting"
+  (mousemove)="onUserActivity()"
+  (mouseleave)="onMouseLeave()"
+  (touchstart)="onUserActivity()"
+>
+  <video
+    #videoEl
+    class="cast-player__video"
+    [style.object-fit]="objectFit"
+    [attr.poster]="poster"
+    playsinline
+    webkit-playsinline
+    preload="auto"
+    controlslist="nodownload"
+    (click)="onVideoClick()"
+  ></video>
+
+  <img
+    class="cast-player__poster"
+    *ngIf="poster && !hasActuallyPlayed"
+    [src]="poster"
+    alt=""
+  />
+
+  <div class="cast-player__gradient" aria-hidden="true"></div>
+
+  <div
+    class="cast-player__pause-overlay"
+    *ngIf="isPlaying && controlsVisible && isWeb"
+    aria-hidden="true"
+  >
+    <div class="cast-player__pause-badge">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="10.5" y="10.5" width="4" height="11" rx="0.5" />
+        <rect x="17.5" y="10.5" width="4" height="11" rx="0.5" />
+      </svg>
+    </div>
+  </div>
+
+  <button
+    *ngIf="!isPlaying"
+    type="button"
+    class="cast-player__play-center"
+    (click)="togglePlay()"
+    aria-label="Lecture"
+  >
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M20.7131 14.6976C21.7208 15.2735 21.7208 16.7265 20.7131 17.3024L12.7442 21.856C11.7442 22.4274 10.5 21.7054 10.5 20.5536L10.5 11.4464C10.5 10.2946 11.7442 9.57257 12.7442 10.144L20.7131 14.6976Z" />
+    </svg>
+  </button>
+
+  <button
+    *ngIf="castAvailable && enableCast"
+    type="button"
+    class="cast-player__cast"
+    [class.casting]="isCasting"
+    (click)="onCastClick()"
+    aria-label="Caster"
+  >
+    <svg viewBox="0 0 24 24" width="24" height="24">
+      <path *ngIf="!isCasting" fill="currentColor" d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+      <path *ngIf="isCasting" fill="currentColor" d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"/>
+    </svg>
+  </button>
+
+  <div
+    class="cast-player__control-bar"
+    *ngIf="hasActuallyPlayed"
+    (click)="$event.stopPropagation()"
+  >
+    <button type="button" class="cast-player__btn" (click)="togglePlay()" [attr.aria-label]="isPlaying ? 'Pause' : 'Lecture'">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <g *ngIf="!isPlaying">
+          <path d="M20.7131 14.6976C21.7208 15.2735 21.7208 16.7265 20.7131 17.3024L12.7442 21.856C11.7442 22.4274 10.5 21.7054 10.5 20.5536L10.5 11.4464C10.5 10.2946 11.7442 9.57257 12.7442 10.144L20.7131 14.6976Z" />
+        </g>
+        <g *ngIf="isPlaying">
+          <rect x="10.5" y="10.5" width="4" height="11" rx="0.5" />
+          <rect x="17.5" y="10.5" width="4" height="11" rx="0.5" />
+        </g>
+      </svg>
+    </button>
+
+    <div
+      class="cast-player__time-range"
+      (pointerdown)="onSeekStart($event)"
+      (pointermove)="onSeekMove($event)"
+      (pointerup)="onSeekEnd($event)"
+      (pointercancel)="onSeekEnd($event)"
+    >
+      <div class="cast-player__track">
+        <div class="cast-player__buffered" [style.width.%]="bufferedPercent"></div>
+        <div class="cast-player__progress" [style.width.%]="progressPercent"></div>
+        <div class="cast-player__thumb" [style.left.%]="progressPercent"></div>
+      </div>
+    </div>
+
+    <button type="button" class="cast-player__btn" (click)="toggleFullscreen()" [attr.aria-label]="fullscreen ? 'Quitter le plein écran' : 'Plein écran'">
+      <svg *ngIf="!fullscreen" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M18 10H22V14" fill="none" />
+        <path d="M22 10L18 14" fill="none" />
+        <path d="M14 22L10 22V18" fill="none" />
+        <path d="M10 22L14 18" fill="none" />
+      </svg>
+      <svg *ngIf="fullscreen" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M22 14H18V10" fill="none" />
+        <path d="M22 10L18 14" fill="none" />
+        <path d="M10 18L14 18V22" fill="none" />
+        <path d="M14 18L10 22" fill="none" />
+      </svg>
+    </button>
+  </div>
+</div>

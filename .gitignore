@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.idea/
+.DS_Store
+*.log
+android/build/
+android/.gradle/
+android/bin/
+ios/Pods/

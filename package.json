@@ -1,0 +1,89 @@
+{
+  "name": "@moova/cast-player",
+  "version": "0.1.0",
+  "description": "Lecteur vidéo Ionic/Angular (HLS + MP4) avec skin custom iOS/Android et Chromecast embarqué",
+  "main": "src/lib/public-api.ts",
+  "module": "src/lib/public-api.ts",
+  "es2020": "src/lib/public-api.ts",
+  "esm2020": "src/lib/public-api.ts",
+  "typings": "src/lib/public-api.ts",
+  "types": "src/lib/public-api.ts",
+  "sideEffects": true,
+  "unpkg": "dist/plugin.js",
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "ios/Plugin/",
+    "*.podspec",
+    "dist/",
+    "src/lib/",
+    "src/plugin/",
+    "examples/"
+  ],
+  "author": "Moova",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pierrejordans/moova-cast-player.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Pierrejordans/moova-cast-player/issues"
+  },
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "video",
+    "player",
+    "chromecast",
+    "hls",
+    "ionic",
+    "angular"
+  ],
+  "scripts": {
+    "build": "npm run clean && tsc && rollup -c rollup.config.mjs",
+    "clean": "rimraf ./dist"
+  },
+  "peerDependencies": {
+    "@angular/common": ">=19.0.0",
+    "@angular/core": ">=19.0.0",
+    "@capacitor/core": ">=8.0.0",
+    "@capacitor/screen-orientation": ">=8.0.0",
+    "@ionic/angular": ">=8.0.0",
+    "hls.js": ">=1.0.0",
+    "rxjs": ">=7.8.0"
+  },
+  "peerDependenciesMeta": {
+    "@ionic/angular": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@capacitor/core": "^8.0.0",
+    "rimraf": "^6.0.1",
+    "rollup": "^4.34.0",
+    "typescript": "~5.6.3"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./src/lib/public-api.ts",
+      "esm2020": "./src/lib/public-api.ts",
+      "es2020": "./src/lib/public-api.ts",
+      "module": "./src/lib/public-api.ts",
+      "import": "./src/lib/public-api.ts",
+      "default": "./src/lib/public-api.ts"
+    },
+    "./plugin": {
+      "types": "./src/plugin/index.ts",
+      "import": "./src/plugin/index.ts",
+      "default": "./src/plugin/index.ts"
+    }
+  }
+}

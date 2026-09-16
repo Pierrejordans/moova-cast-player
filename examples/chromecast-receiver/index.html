@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cast Receiver</title>
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <style>
+    /*
+      Marque blanche : changez uniquement ce bloc.
+      Images en HTTPS public, ex. url("https://cdn.example.com/logo.png")
+    */
+    body {
+      margin: 0;
+      background: #111;
+      --playback-logo-image: none;
+    }
+
+    cast-media-player {
+      --background-color: #111111;
+      --splash-color: #111111;
+      --splash-image: none;
+      --splash-size: contain;
+      --logo-image: none;
+      --logo-size: 160px;
+      --watermark-image: none;
+      --progress-color: #ffffff;
+      --theme-hue: 0;
+      --font-family: "Open Sans", sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <cast-media-player></cast-media-player>
+  <script>
+    const context = cast.framework.CastReceiverContext.getInstance();
+    const player = context.getPlayerManager();
+
+    player.setMessageInterceptor(
+      cast.framework.messages.MessageType.LOAD,
+      (request) => {
+        const media = request.media || {};
+        const data = request.customData || {};
+        const url = data.mediaUrl || media.contentUrl || media.contentId;
+
+        if (url) {
+          media.contentId = url;
+          media.contentUrl = url;
+        }
+
+        if (!media.contentType) {
+          media.contentType = String(url || '').includes('.m3u8')
+            ? 'application/x-mpegURL'
+            : 'video/mp4';
+        }
+
+        request.media = media;
+        return request;
+      }
+    );
+
+    context.start();
+  </script>
+</body>
+</html>
