@@ -1,10 +1,10 @@
 <div
   #hostEl
   class="cast-player-host"
-  [class.controls-visible]="controlsVisible"
   [class.is-playing]="isPlaying"
   [class.is-fullscreen]="fullscreen"
   [class.is-casting]="isCasting"
+  [class.chrome-visible]="chromeVisible"
   (mousemove)="onUserActivity()"
   (mouseleave)="onMouseLeave()"
   (touchstart)="onUserActivity()"
@@ -13,20 +13,28 @@
     #videoEl
     class="cast-player__video"
     [style.object-fit]="objectFit"
-    [attr.poster]="poster"
     playsinline
     webkit-playsinline
-    preload="auto"
+    preload="metadata"
     controlslist="nodownload"
     (click)="onVideoClick()"
   ></video>
 
   <img
     class="cast-player__poster"
-    *ngIf="poster && !hasActuallyPlayed"
+    *ngIf="poster"
+    [class.is-hidden]="!showPoster"
     [src]="poster"
     alt=""
   />
+
+  <div
+    class="cast-player__loader"
+    [class.is-hidden]="!showInitialLoader"
+    aria-hidden="true"
+  >
+    <div class="cast-player__spinner"></div>
+  </div>
 
   <div class="cast-player__gradient" aria-hidden="true"></div>
 
@@ -44,9 +52,11 @@
   </div>
 
   <button
-    *ngIf="!isPlaying"
     type="button"
     class="cast-player__play-center"
+    [class.is-hidden]="isPlaying || !chromeVisible"
+    [attr.aria-hidden]="isPlaying || !chromeVisible"
+    [disabled]="isPlaying || !chromeVisible"
     (click)="togglePlay()"
     aria-label="Lecture"
   >
@@ -71,7 +81,7 @@
 
   <div
     class="cast-player__control-bar"
-    *ngIf="hasActuallyPlayed"
+    [class.is-hidden]="!hasActuallyPlayed"
     (click)="$event.stopPropagation()"
   >
     <button type="button" class="cast-player__btn" (click)="togglePlay()" [attr.aria-label]="isPlaying ? 'Pause' : 'Lecture'">

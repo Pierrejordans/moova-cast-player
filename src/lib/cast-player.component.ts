@@ -14,7 +14,7 @@ import {
   ViewEncapsulation,
 } from '@angular/core';
 import { SafeResourceUrl } from '@angular/platform-browser';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, PluginListenerHandle } from '@capacitor/core';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
 import { IonRouterOutlet } from '@ionic/angular';
 import Hls from 'hls.js';
@@ -39,9 +39,15 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
   @Input() poster: string | SafeResourceUrl = '';
   @Input() title = '';
   @Input() autoplay = false;
+  @Input()
+  set autoPlay(value: boolean) {
+    this.autoplay = !!value;
+  }
   @Input() muted = false;
   @Input() loop = false;
   @Input() startPosition = 0;
+  @Input() startProgress = 0;
+  @Input() startRewindSeconds = 0;
   @Input() isVisible = true;
   @Input() rotationFullscreen = false;
   @Input() enableCast = true;
@@ -65,6 +71,7 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
 
   isPlaying = false;
   hasActuallyPlayed = false;
+  showPoster = true;
   isCasting = false;
   castAvailable = false;
   fullscreen = false;
@@ -72,6 +79,9 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
   progressPercent = 0;
   bufferedPercent = 0;
   isWeb = Capacitor.getPlatform() === 'web';
+  isIos = Capacitor.getPlatform() === 'ios';
+  private autoplayBlocked = false;
+  private userInitiatedPlay = false;
 
   private hls: Hls | null = null;
   private playerReady = false;
@@ -82,11 +92,17 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
   private subscriptions: Subscription[] = [];
   private fullscreenListener: (() => void) | null = null;
   private onOrientationChange: (() => void) | null = null;
-  private onPhysicalOrientationChange: ((event: DeviceOrientationEvent) => void) | null = null;
+  private screenOrientationHandle: PluginListenerHandle | null = null;
+  private enteringFullscreen = false;
+  private veilHideTimeout: ReturnType<typeof setTimeout> | null = null;
   private fullscreenHasSeenLandscape = false;
   private fullscreenHasSeenPhysicalLandscape = false;
   private suppressAutoFullscreenUntilPortrait = false;
   private hasSetStartPosition = false;
+  private pendingInitialSeek = false;
+  private resolvedStartSeconds = 0;
+  private initialSeekTimeout: ReturnType<typeof setTimeout> | null = null;
+  private revealFailsafeTimeout: ReturnType<typeof setTimeout> | null = null;
   private mediaBound = false;
 
   constructor(
@@ -96,6 +112,23 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
 
   get video(): HTMLVideoElement | null {
     return this.videoEl?.nativeElement ?? null;
+  }
+
+  get chromeVisible(): boolean {
+    if (this.controlsVisible) {
+      return true;
+    }
+    if (this.isPlaying) {
+      return false;
+    }
+    if (this.autoplay && !this.hasActuallyPlayed && !this.autoplayBlocked) {
+      return false;
+    }
+    return true;
+  }
+
+  get showInitialLoader(): boolean {
+    return this.autoplay && this.showPoster && !this.autoplayBlocked;
   }
 
   ngOnInit(): void {
@@ -141,6 +174,13 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     if (srcChanged) {
       this.teardownMedia(true);
       this.hasSetStartPosition = false;
+      this.pendingInitialSeek = false;
+      this.resolvedStartSeconds = 0;
+      this.showPoster = true;
+      this.hasActuallyPlayed = false;
+      this.autoplayBlocked = false;
+      this.userInitiatedPlay = false;
+      this.controlsVisible = false;
     }
 
     if (!changes['src']?.firstChange && !changes['isVisible']?.firstChange) {
@@ -154,8 +194,21 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     this.subscriptions.forEach((s) => s.unsubscribe());
     if (this.fullscreenListener) {
       document.removeEventListener('fullscreenchange', this.fullscreenListener);
+      document.removeEventListener('webkitfullscreenchange', this.fullscreenListener);
     }
-    if (this.fullscreen) {
+    if (this.veilHideTimeout) {
+      clearTimeout(this.veilHideTimeout);
+    }
+    if (this.initialSeekTimeout) {
+      clearTimeout(this.initialSeekTimeout);
+    }
+    if (this.revealFailsafeTimeout) {
+      clearTimeout(this.revealFailsafeTimeout);
+    }
+    this.hideVeil();
+    if (this.rotationFullscreen && Capacitor.isNativePlatform() && this.isPhone()) {
+      void ScreenOrientation.lock({ orientation: 'portrait' });
+    } else if (this.fullscreen) {
       void this.applyExitOrientation();
     }
   }
@@ -184,6 +237,7 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     if (this.isPlaying) {
       video.pause();
     } else {
+      this.userInitiatedPlay = true;
       await video.play().catch((err) => this.error.emit(err));
     }
     this.onUserActivity();
@@ -233,13 +287,13 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
   async enterFullscreen(): Promise<void> {
     const host = this.hostEl?.nativeElement;
     const video = this.video;
-    if (!host) {
+    if (!host || this.fullscreen || this.enteringFullscreen) {
       return;
     }
 
-    if (this.rotationFullscreen) {
-      await this.unlockOrientation('enter-fs');
-    }
+    this.enteringFullscreen = true;
+    this.showVeil();
+    await this.applyEnterOrientation();
 
     const webkitVideo = video as HTMLVideoElement & {
       webkitEnterFullscreen?: () => void;
@@ -257,9 +311,11 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     } catch (err) {
       console.warn('[CastPlayer] requestFullscreen failed', err);
     }
+    this.enteringFullscreen = false;
   }
 
   async exitFullscreen(): Promise<void> {
+    this.showVeil();
     const doc = document as Document & { webkitExitFullscreen?: () => void };
     const webkitVideo = this.video as (HTMLVideoElement & { webkitExitFullscreen?: () => void }) | undefined;
     try {
@@ -371,6 +427,8 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
 
     video.muted = this.muted;
     video.loop = this.loop;
+    video.playsInline = true;
+    video.preload = this.autoplay ? 'auto' : 'metadata';
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
 
@@ -386,12 +444,42 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     }
 
     if (this.rotationFullscreen) {
-      this.setupOrientationFullscreenListener();
+      void this.unlockOrientation('player-visible');
+      void this.setupOrientationFullscreenListener();
     }
 
-    if (this.autoplay) {
-      video.play().catch((err) => this.error.emit(err));
+    if (this.autoplay && !this.needsInitialStart()) {
+      this.requestAutoplay(video);
     }
+    if (this.autoplay) {
+      this.armRevealFailsafe();
+    }
+  }
+
+  private needsInitialStart(): boolean {
+    return this.startPosition > 0 || this.startProgress > 0;
+  }
+
+  private requestAutoplay(video: HTMLVideoElement): void {
+    if (this.pendingInitialSeek) {
+      return;
+    }
+    video.autoplay = true;
+    const tryPlay = () => {
+      if (this.pendingInitialSeek) {
+        return;
+      }
+      void video.play().catch((err) => {
+        this.autoplayBlocked = true;
+        this.error.emit(err);
+      });
+    };
+    if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      tryPlay();
+      return;
+    }
+    video.addEventListener('canplay', tryPlay, { once: true });
+    tryPlay();
   }
 
   private attachMedia(video: HTMLVideoElement, mediaUrl: string): void {
@@ -400,13 +488,19 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
 
     if (!isIos && hls && Hls.isSupported()) {
       this.hls?.destroy();
-      this.hls = new Hls({ enableWorker: true, startLevel: -1 });
+      this.hls = new Hls({
+        enableWorker: true,
+        startLevel: -1,
+        autoStartLoad: false,
+      });
       this.hls.loadSource(mediaUrl);
       this.hls.attachMedia(video);
       this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (this.hls) {
           this.hls.currentLevel = -1;
         }
+        this.applyStartPosition();
+        this.hls?.startLoad(this.resolvedStartSeconds > 0 ? this.resolvedStartSeconds : -1);
       });
       this.hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data?.fatal) {
@@ -433,17 +527,27 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
   private bindVideoEvents(video: HTMLVideoElement): void {
     video.onplay = () => {
       this.isPlaying = true;
-      this.hasActuallyPlayed = true;
-      this.controlsVisible = true;
-      this.play.emit();
-      this.emitPlayingStarted();
-      this.onUserActivity();
+      if (this.pendingInitialSeek || this.showPoster) {
+        return;
+      }
+      this.onPlaybackVisible();
+    };
+    video.onplaying = () => {
+      if (!this.canRevealPlayback(video)) {
+        return;
+      }
+      this.onPlaybackVisible();
     };
     video.onpause = () => {
       this.isPlaying = false;
+      if (this.showPoster) {
+        return;
+      }
       this.controlsVisible = true;
       this.pause.emit();
     };
+    video.addEventListener('webkitbeginfullscreen', () => this.fullscreenListener?.());
+    video.addEventListener('webkitendfullscreen', () => this.fullscreenListener?.());
     video.onended = () => this.ended.emit();
     video.onerror = () => this.error.emit(video.error);
     video.onloadedmetadata = () => {
@@ -452,6 +556,9 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
       this.emitPlayingStarted();
     };
     video.ontimeupdate = () => {
+      if (this.showPoster && this.autoplay && !video.paused && this.canRevealPlayback(video)) {
+        this.onPlaybackVisible();
+      }
       if (this.seeking || this.isCasting) {
         return;
       }
@@ -479,13 +586,108 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     });
   }
 
-  private applyStartPosition(): void {
-    const video = this.video;
-    if (!video || this.hasSetStartPosition || this.startPosition <= 0) {
+  private canRevealPlayback(video: HTMLVideoElement): boolean {
+    if (this.pendingInitialSeek) {
+      return false;
+    }
+    if (this.resolvedStartSeconds <= 1) {
+      return true;
+    }
+    return video.currentTime >= this.resolvedStartSeconds - 1.5;
+  }
+
+  private armRevealFailsafe(): void {
+    if (this.revealFailsafeTimeout) {
       return;
     }
-    video.currentTime = this.startPosition;
+    this.revealFailsafeTimeout = setTimeout(() => {
+      const video = this.video;
+      if (!this.showPoster || !video || video.paused) {
+        return;
+      }
+      this.pendingInitialSeek = false;
+      this.onPlaybackVisible();
+    }, 8000);
+  }
+
+  private onPlaybackVisible(): void {
+    if (this.revealFailsafeTimeout) {
+      clearTimeout(this.revealFailsafeTimeout);
+      this.revealFailsafeTimeout = null;
+    }
+    this.showPoster = false;
+    this.pendingInitialSeek = false;
+    this.isPlaying = true;
+    if (this.hasActuallyPlayed) {
+      return;
+    }
+    this.hasActuallyPlayed = true;
+    this.play.emit();
+    this.emitPlayingStarted();
+    if (this.autoplay && !this.userInitiatedPlay) {
+      this.controlsVisible = false;
+      return;
+    }
+    this.controlsVisible = true;
+    this.onUserActivity();
+  }
+
+  private computeStartSeconds(duration: number): number {
+    let seconds = 0;
+    if (this.startPosition > 0) {
+      seconds = this.startPosition;
+    } else if (this.startProgress > 0 && duration > 0 && Number.isFinite(duration)) {
+      seconds = (this.startProgress / 100) * duration - (this.startRewindSeconds || 0);
+    }
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return 0;
+    }
+    if (duration > 0 && Number.isFinite(duration)) {
+      return Math.min(seconds, Math.max(0, duration - 0.5));
+    }
+    return seconds;
+  }
+
+  private applyStartPosition(): void {
+    const video = this.video;
+    if (!video || this.hasSetStartPosition) {
+      return;
+    }
+    const duration = video.duration || this.duration || 0;
+    if (this.startProgress > 0 && this.startPosition <= 0 && !(duration > 0 && Number.isFinite(duration))) {
+      return;
+    }
+
+    const seconds = this.computeStartSeconds(duration);
+    this.resolvedStartSeconds = seconds;
     this.hasSetStartPosition = true;
+    if (seconds <= 0 || Math.abs(video.currentTime - seconds) < 0.35) {
+      this.pendingInitialSeek = false;
+      if (this.autoplay) {
+        this.requestAutoplay(video);
+      }
+      return;
+    }
+
+    this.pendingInitialSeek = true;
+    const onSeeked = () => {
+      if (this.initialSeekTimeout) {
+        clearTimeout(this.initialSeekTimeout);
+        this.initialSeekTimeout = null;
+      }
+      this.pendingInitialSeek = false;
+      if (this.autoplay) {
+        this.requestAutoplay(video);
+      }
+    };
+    video.addEventListener('seeked', onSeeked, { once: true });
+    video.currentTime = seconds;
+    this.initialSeekTimeout = setTimeout(() => {
+      if (!this.pendingInitialSeek) {
+        return;
+      }
+      onSeeked();
+    }, 2500);
   }
 
   private updateBuffered(video: HTMLVideoElement): void {
@@ -526,6 +728,14 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     }
     this.hls?.destroy();
     this.hls = null;
+    if (this.initialSeekTimeout) {
+      clearTimeout(this.initialSeekTimeout);
+      this.initialSeekTimeout = null;
+    }
+    if (this.revealFailsafeTimeout) {
+      clearTimeout(this.revealFailsafeTimeout);
+      this.revealFailsafeTimeout = null;
+    }
     const video = this.video;
     if (video) {
       video.pause();
@@ -536,6 +746,9 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     }
     this.playerReady = false;
     this.isPlaying = false;
+    this.hasSetStartPosition = false;
+    this.pendingInitialSeek = false;
+    this.showPoster = true;
   }
 
   private async onCastConnection(connected: boolean): Promise<void> {
@@ -588,33 +801,67 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
       return;
     }
     this.fullscreenListener = () => {
-      const wasFullscreen = this.fullscreen;
-      this.fullscreen = this.isFullscreen();
-      if (this.routerOutlet) {
-        this.routerOutlet.swipeGesture = !this.fullscreen;
-      }
-      if (this.fullscreen && !wasFullscreen) {
-        this.fullscreenHasSeenLandscape = window.innerWidth > window.innerHeight;
-        this.fullscreenHasSeenPhysicalLandscape = false;
-        this.suppressAutoFullscreenUntilPortrait = false;
-        void this.applyEnterOrientation();
-      } else if (!this.fullscreen && wasFullscreen) {
-        this.fullscreenHasSeenLandscape = false;
-        this.fullscreenHasSeenPhysicalLandscape = false;
-        if (this.isPhone()) {
-          this.suppressAutoFullscreenUntilPortrait = window.innerWidth > window.innerHeight;
-        }
-        void this.applyExitOrientation();
-      }
-      this.fullscreenChange.emit({ fullscreen: this.fullscreen });
+      void this.handleFullscreenChange();
     };
     document.addEventListener('fullscreenchange', this.fullscreenListener);
+    document.addEventListener('webkitfullscreenchange', this.fullscreenListener);
+  }
+
+  private async handleFullscreenChange(): Promise<void> {
+    const wasFullscreen = this.fullscreen;
+    this.fullscreen = this.isFullscreen();
+    if (this.routerOutlet) {
+      this.routerOutlet.swipeGesture = !this.fullscreen;
+    }
+    if (this.fullscreen && !wasFullscreen) {
+      this.fullscreenHasSeenLandscape = window.innerWidth > window.innerHeight;
+      this.fullscreenHasSeenPhysicalLandscape = false;
+      this.suppressAutoFullscreenUntilPortrait = false;
+      this.showVeil();
+      await this.applyEnterOrientation();
+    } else if (!this.fullscreen && wasFullscreen) {
+      this.fullscreenHasSeenLandscape = false;
+      this.fullscreenHasSeenPhysicalLandscape = false;
+      if (this.isPhone()) {
+        this.suppressAutoFullscreenUntilPortrait = window.innerWidth > window.innerHeight;
+      }
+      this.showVeil();
+      await this.applyExitOrientation();
+      this.hideVeil(450);
+    }
+    this.fullscreenChange.emit({ fullscreen: this.fullscreen });
   }
 
   private isFullscreen(): boolean {
     const doc = document as Document & { webkitFullscreenElement?: Element | null };
     const webkitVideo = this.video as (HTMLVideoElement & { webkitDisplayingFullscreen?: boolean }) | null;
     return !!(document.fullscreenElement ?? doc.webkitFullscreenElement ?? webkitVideo?.webkitDisplayingFullscreen);
+  }
+
+  private showVeil(): void {
+    if (this.veilHideTimeout) {
+      clearTimeout(this.veilHideTimeout);
+      this.veilHideTimeout = null;
+    }
+    document.body.classList.add('cast-player-veil');
+  }
+
+  private hideVeil(delayMs = 0): void {
+    if (this.veilHideTimeout) {
+      clearTimeout(this.veilHideTimeout);
+      this.veilHideTimeout = null;
+    }
+    const hide = () => {
+      if (this.fullscreen || this.enteringFullscreen) {
+        return;
+      }
+      document.body.classList.remove('cast-player-veil');
+    };
+    if (delayMs > 0) {
+      this.veilHideTimeout = setTimeout(hide, delayMs);
+      return;
+    }
+    hide();
   }
 
   private isPhone(): boolean {
@@ -625,14 +872,14 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     if (!Capacitor.isNativePlatform() || this.isWeb) {
       return;
     }
-    if (this.rotationFullscreen && (Capacitor.getPlatform() === 'ios' || !this.isPhone())) {
+    if (!this.isPhone()) {
       await this.unlockOrientation('fs-enter');
       return;
     }
     try {
       await ScreenOrientation.lock({ orientation: 'landscape' });
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.warn('[CastPlayer] landscape lock failed', err);
     }
   }
 
@@ -640,15 +887,31 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     if (!Capacitor.isNativePlatform() || this.isWeb) {
       return;
     }
-    if (this.rotationFullscreen) {
+    if (!this.isPhone()) {
       await this.unlockOrientation('fs-exit');
       return;
     }
     try {
       await ScreenOrientation.lock({ orientation: 'portrait' });
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.warn('[CastPlayer] portrait lock failed', err);
     }
+    if (!this.rotationFullscreen) {
+      return;
+    }
+    const stillLandscape = window.innerWidth > window.innerHeight;
+    this.suppressAutoFullscreenUntilPortrait = stillLandscape;
+    if (!stillLandscape) {
+      await this.unlockOrientation('fs-exit-ready');
+    }
+  }
+
+  private async allowRotateAfterPortrait(): Promise<void> {
+    if (!this.rotationFullscreen || this.isFullscreen() || !this.isPhone()) {
+      return;
+    }
+    this.suppressAutoFullscreenUntilPortrait = false;
+    await this.unlockOrientation('portrait-ready');
   }
 
   private async unlockOrientation(origin: string): Promise<void> {
@@ -659,76 +922,80 @@ export class CastPlayerComponent implements OnInit, AfterViewInit, OnChanges, On
     }
   }
 
-  private setupOrientationFullscreenListener(): void {
+  private async setupOrientationFullscreenListener(): Promise<void> {
     this.teardownOrientationListeners();
-    if (!this.rotationFullscreen || !Capacitor.isNativePlatform() || Capacitor.getPlatform() === 'ios') {
+    if (!this.rotationFullscreen || !Capacitor.isNativePlatform()) {
       return;
     }
 
-    this.onOrientationChange = () => {
-      if (!this.isPhone()) {
-        return;
-      }
-      if (this.isFullscreen()) {
-        if (window.innerWidth > window.innerHeight) {
-          this.fullscreenHasSeenLandscape = true;
-        } else if (this.fullscreenHasSeenLandscape) {
-          void this.exitFullscreen();
-        }
-        return;
-      }
-      if (window.innerHeight > window.innerWidth) {
-        this.suppressAutoFullscreenUntilPortrait = false;
-      }
-      if (window.innerWidth > window.innerHeight && !this.suppressAutoFullscreenUntilPortrait) {
-        void this.enterFullscreen();
-      }
-    };
+    this.onOrientationChange = () => this.syncFullscreenToLayout();
+    window.addEventListener('orientationchange', this.onOrientationChange);
+    window.addEventListener('resize', this.onOrientationChange);
+    screen.orientation?.addEventListener?.('change', this.onOrientationChange);
 
-    this.onPhysicalOrientationChange = (event: DeviceOrientationEvent) => {
-      if (!this.isPhone() || !this.isFullscreen()) {
-        return;
+    this.screenOrientationHandle = await ScreenOrientation.addListener('screenOrientationChange', ({ type }) => {
+      if (type.startsWith('landscape')) {
+        this.syncFullscreenToPhysical('landscape');
+      } else if (type.startsWith('portrait')) {
+        this.syncFullscreenToPhysical('portrait');
       }
-      const physical = this.getPhysicalOrientation(event);
-      if (physical === 'landscape') {
+    });
+  }
+
+  private syncFullscreenToLayout(): void {
+    if (!this.isPhone()) {
+      return;
+    }
+    const landscape = window.innerWidth > window.innerHeight;
+    if (this.isFullscreen()) {
+      if (landscape) {
+        this.fullscreenHasSeenLandscape = true;
+      } else if (this.fullscreenHasSeenLandscape) {
+        void this.exitFullscreen();
+      }
+      return;
+    }
+    if (!landscape) {
+      void this.allowRotateAfterPortrait();
+      return;
+    }
+    if (!this.suppressAutoFullscreenUntilPortrait) {
+      void this.enterFullscreen();
+    }
+  }
+
+  private syncFullscreenToPhysical(physical: 'portrait' | 'landscape'): void {
+    if (!this.isPhone()) {
+      return;
+    }
+    if (physical === 'landscape') {
+      if (this.isFullscreen()) {
         this.fullscreenHasSeenPhysicalLandscape = true;
         this.fullscreenHasSeenLandscape = true;
         return;
       }
-      if (physical === 'portrait' && this.fullscreenHasSeenPhysicalLandscape) {
-        void this.exitFullscreen();
+      if (!this.suppressAutoFullscreenUntilPortrait) {
+        this.fullscreenHasSeenPhysicalLandscape = true;
+        void this.enterFullscreen();
       }
-    };
-
-    window.addEventListener('orientationchange', this.onOrientationChange);
-    screen.orientation?.addEventListener?.('change', this.onOrientationChange);
-    window.addEventListener('deviceorientation', this.onPhysicalOrientationChange);
+      return;
+    }
+    this.suppressAutoFullscreenUntilPortrait = false;
+    if (this.isFullscreen() && this.fullscreenHasSeenPhysicalLandscape) {
+      void this.exitFullscreen();
+      return;
+    }
+    void this.allowRotateAfterPortrait();
   }
 
   private teardownOrientationListeners(): void {
     if (this.onOrientationChange) {
       window.removeEventListener('orientationchange', this.onOrientationChange);
+      window.removeEventListener('resize', this.onOrientationChange);
       screen.orientation?.removeEventListener?.('change', this.onOrientationChange);
       this.onOrientationChange = null;
     }
-    if (this.onPhysicalOrientationChange) {
-      window.removeEventListener('deviceorientation', this.onPhysicalOrientationChange);
-      this.onPhysicalOrientationChange = null;
-    }
-  }
-
-  private getPhysicalOrientation(event: DeviceOrientationEvent): 'portrait' | 'landscape' | null {
-    if (event.beta == null || event.gamma == null) {
-      return null;
-    }
-    const beta = Math.abs(event.beta);
-    const gamma = Math.abs(event.gamma);
-    if (gamma > 45 && gamma > beta * 0.65) {
-      return 'landscape';
-    }
-    if (beta > 45 && beta > gamma * 0.65) {
-      return 'portrait';
-    }
-    return null;
+    void this.screenOrientationHandle?.remove();
+    this.screenOrientationHandle = null;
   }
 }

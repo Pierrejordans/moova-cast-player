@@ -21,15 +21,44 @@
     --cast-player-base: 24px;
     aspect-ratio: auto;
     height: 100%;
+    width: 100%;
   }
 }
 
+body.cast-player-veil {
+  background: #000 !important;
+}
+
+body.cast-player-veil ion-app {
+  background: #000 !important;
+  visibility: hidden;
+}
+
+body.cast-player-veil .cast-player-host {
+  visibility: visible;
+  background: #000;
+}
+
 .cast-player__video {
+  position: relative;
+  z-index: 0;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
   background: #000;
+}
+
+.cast-player__poster,
+.cast-player__gradient,
+.cast-player__control-bar,
+.cast-player__cast,
+.cast-player__pause-overlay,
+.cast-player__loader {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .cast-player__poster {
@@ -42,6 +71,39 @@
   background: #000;
   pointer-events: none;
   z-index: 1;
+
+  &.is-hidden {
+    visibility: hidden;
+  }
+}
+
+.cast-player__loader {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+
+  &.is-hidden {
+    visibility: hidden;
+  }
+}
+
+.cast-player__spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: cast-player-spin 0.7s linear infinite;
+}
+
+@keyframes cast-player-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .cast-player__gradient {
@@ -51,15 +113,13 @@
   width: 100%;
   height: calc(8 * var(--cast-player-base));
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  visibility: hidden;
   z-index: 2;
 
   &::before {
     content: "";
     position: absolute;
     inset: 0;
-    opacity: 0.7;
     background: linear-gradient(
       to bottom,
       hsl(0 0% 0% / 0) 0%,
@@ -82,9 +142,8 @@
   }
 }
 
-.cast-player-host.controls-visible .cast-player__gradient,
-.cast-player-host:not(.is-playing) .cast-player__gradient {
-  opacity: 1;
+.cast-player-host.chrome-visible .cast-player__gradient {
+  visibility: visible;
 }
 
 .cast-player__pause-overlay {
@@ -117,7 +176,15 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
+  -webkit-transform: translate(-50%, -50%) translateZ(0);
+  transform: translate(-50%, -50%) translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-perspective: 1000px;
+  perspective: 1000px;
+  will-change: transform;
+  -webkit-appearance: none;
+  appearance: none;
   width: var(--cast-player-center-btn);
   height: var(--cast-player-center-btn);
   border: none;
@@ -135,6 +202,11 @@
     height: var(--cast-player-center-icon);
     fill: #fff;
     margin-left: 2px;
+  }
+
+  &.is-hidden {
+    visibility: hidden;
+    pointer-events: none;
   }
 }
 
@@ -175,15 +247,18 @@
   align-items: center;
   gap: 2px;
   z-index: 4;
-  opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.15s ease;
 }
 
-.cast-player-host.controls-visible .cast-player__control-bar,
-.cast-player-host:not(.is-playing) .cast-player__control-bar {
-  opacity: 1;
+.cast-player-host.chrome-visible .cast-player__control-bar:not(.is-hidden) {
+  visibility: visible;
   pointer-events: auto;
+}
+
+.cast-player__control-bar.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .cast-player__btn {
